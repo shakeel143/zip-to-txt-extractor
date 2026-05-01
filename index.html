@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ZIP → TXT Extractor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;600;800&display=swap');
+
+  :root {
+    --bg: #0d0f14;
+    --surface: #151820;
+    --border: #252a35;
+    --accent: #00e5a0;
+    --accent2: #0075ff;
+    --text: #e8eaf0;
+    --muted: #5a6070;
+    --danger: #ff4d6d;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px 60px;
+  }
+
+  /* Subtle grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,160,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,160,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrap { position: relative; z-index: 1; width: 100%; max-width: 760px; }
+
+  /* Header */
+  header { text-align: center; margin-bottom: 48px; }
+  .logo {
+    display: inline-flex; align-items: center; gap: 10px;
+    font-family: var(--mono); font-size: 13px; font-weight: 600;
+    color: var(--accent); letter-spacing: 3px; text-transform: uppercase;
+    margin-bottom: 20px;
+  }
+  .logo-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(0.7)} }
+
+  h1 {
+    font-size: clamp(32px, 6vw, 52px);
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -1px;
+  }
+  h1 span { color: var(--accent); }
+  .subtitle { margin-top: 12px; color: var(--muted); font-size: 15px; font-family: var(--mono); }
+
+  /* Drop zone */
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 16px;
+    padding: 48px 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .25s, background .25s;
+    position: relative;
+    background: var(--surface);
+  }
+  .dropzone:hover, .dropzone.dragover {
+    border-color: var(--accent);
+    background: rgba(0,229,160,0.04);
+  }
+  .dropzone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+  .drop-icon { font-size: 40px; margin-bottom: 16px; }
+  .drop-label { font-size: 18px; font-weight: 600; color: var(--text); }
+  .drop-sub { margin-top: 6px; font-size: 13px; color: var(--muted); font-family: var(--mono); }
+  .browse-btn {
+    display: inline-block; margin-top: 18px;
+    background: var(--accent); color: #000; font-weight: 700;
+    font-family: var(--sans); font-size: 14px;
+    padding: 10px 24px; border-radius: 8px; border: none; cursor: pointer;
+    letter-spacing: .5px; transition: opacity .2s;
+  }
+  .browse-btn:hover { opacity: .85; }
+
+  /* File list */
+  #file-list { margin-top: 24px; display: flex; flex-direction: column; gap: 10px; }
+  .file-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    display: flex; align-items: center; gap: 14px;
+    animation: fadeIn .3s ease;
+  }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+  .file-icon { font-size: 22px; flex-shrink: 0; }
+  .file-info { flex: 1; min-width: 0; }
+  .file-name { font-family: var(--mono); font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .file-size { font-size: 12px; color: var(--muted); font-family: var(--mono); margin-top: 2px; }
+  .file-remove {
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    font-size: 18px; padding: 4px 8px; border-radius: 6px; transition: color .2s, background .2s;
+    flex-shrink: 0;
+  }
+  .file-remove:hover { color: var(--danger); background: rgba(255,77,109,.1); }
+
+  /* Options */
+  .options {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 22px;
+    margin-top: 24px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .options-title { font-size: 12px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); font-family: var(--mono); }
+  .opt-row { display: flex; align-items: center; gap: 12px; }
+  .opt-row label { font-size: 14px; color: var(--text); cursor: pointer; flex: 1; }
+  .opt-row label small { display: block; font-size: 12px; color: var(--muted); font-family: var(--mono); margin-top: 2px; }
+  /* toggle */
+  .toggle { position: relative; width: 40px; height: 22px; flex-shrink: 0; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute; inset: 0;
+    background: var(--border); border-radius: 22px; cursor: pointer; transition: background .25s;
+  }
+  .slider::before {
+    content: ''; position: absolute;
+    width: 16px; height: 16px; left: 3px; top: 3px;
+    background: #fff; border-radius: 50%; transition: transform .25s;
+  }
+  .toggle input:checked + .slider { background: var(--accent); }
+  .toggle input:checked + .slider::before { transform: translateX(18px); }
+
+  .output-name-row { display: flex; gap: 10px; align-items: center; }
+  .output-name-row input[type=text] {
+    flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); font-family: var(--mono); font-size: 13px; padding: 9px 14px;
+    outline: none; transition: border-color .2s;
+  }
+  .output-name-row input[type=text]:focus { border-color: var(--accent); }
+
+  /* Action */
+  #extract-btn {
+    width: 100%; margin-top: 28px;
+    padding: 16px;
+    background: var(--accent);
+    color: #000;
+    border: none; border-radius: 12px;
+    font-family: var(--sans); font-weight: 800; font-size: 17px;
+    letter-spacing: .5px; cursor: pointer;
+    transition: opacity .2s, transform .15s;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+  }
+  #extract-btn:hover:not(:disabled) { opacity: .88; transform: translateY(-1px); }
+  #extract-btn:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+
+  /* Progress */
+  #progress-wrap { margin-top: 20px; display: none; }
+  .prog-label { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-bottom: 8px; display: flex; justify-content: space-between; }
+  .prog-bar-bg { background: var(--border); border-radius: 99px; height: 6px; overflow: hidden; }
+  .prog-bar { height: 100%; background: var(--accent); border-radius: 99px; width: 0%; transition: width .3s; }
+
+  /* Log */
+  #log {
+    margin-top: 20px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 18px; max-height: 220px; overflow-y: auto;
+    font-family: var(--mono); font-size: 12px; color: var(--muted);
+    display: none; line-height: 1.8;
+  }
+  .log-ok { color: var(--accent); }
+  .log-skip { color: #f5a623; }
+  .log-err { color: var(--danger); }
+
+  /* Success */
+  #success-box {
+    display: none; margin-top: 24px;
+    background: rgba(0,229,160,.07); border: 1px solid rgba(0,229,160,.3);
+    border-radius: 12px; padding: 20px 22px;
+    display: none; align-items: center; gap: 16px;
+  }
+  #success-box .s-icon { font-size: 28px; }
+  #success-box .s-text { flex: 1; }
+  #success-box .s-title { font-weight: 700; color: var(--accent); }
+  #success-box .s-sub { font-size: 13px; color: var(--muted); font-family: var(--mono); margin-top: 4px; }
+  #dl-btn {
+    background: var(--accent); color: #000; border: none; border-radius: 8px;
+    padding: 10px 20px; font-family: var(--sans); font-weight: 700; font-size: 14px;
+    cursor: pointer; text-decoration: none; white-space: nowrap; transition: opacity .2s;
+  }
+  #dl-btn:hover { opacity: .85; }
+
+  footer { margin-top: 60px; text-align: center; font-size: 12px; color: var(--muted); font-family: var(--mono); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo"><div class="logo-dot"></div> Code Extractor</div>
+    <h1>ZIP → <span>TXT</span></h1>
+    <p class="subtitle">Drop your zip files · get a single formatted code file</p>
+  </header>
+
+  <!-- Drop Zone -->
+  <div class="dropzone" id="dropzone">
+    <input type="file" id="file-input" accept=".zip" multiple />
+    <div class="drop-icon">📦</div>
+    <div class="drop-label">Drag & drop ZIP files here</div>
+    <div class="drop-sub">or click to browse your computer</div>
+    <button class="browse-btn" onclick="document.getElementById('file-input').click(); event.stopPropagation()">Browse Files</button>
+  </div>
+
+  <div id="file-list"></div>
+
+  <!-- Options -->
+  <div class="options" id="options-panel" style="display:none">
+    <div class="options-title">⚙ Options</div>
+
+    <div class="opt-row">
+      <label>
+        Strip common root folder
+        <small>e.g. "smart-pedhi/api/…" becomes "api/…"</small>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="opt-strip" checked />
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="opt-row">
+      <label>
+        Output filename
+        <small>The .txt file you'll download</small>
+      </label>
+    </div>
+    <div class="output-name-row">
+      <input type="text" id="opt-outname" value="extracted_code.txt" spellcheck="false" />
+    </div>
+  </div>
+
+  <!-- Extract button -->
+  <button id="extract-btn" disabled onclick="runExtract()">
+    <span>⚡</span> Extract & Download
+  </button>
+
+  <!-- Progress -->
+  <div id="progress-wrap">
+    <div class="prog-label"><span id="prog-label-text">Processing…</span><span id="prog-pct">0%</span></div>
+    <div class="prog-bar-bg"><div class="prog-bar" id="prog-bar"></div></div>
+  </div>
+
+  <!-- Log -->
+  <div id="log"></div>
+
+  <!-- Success -->
+  <div id="success-box">
+    <div class="s-icon">✅</div>
+    <div class="s-text">
+      <div class="s-title">Done!</div>
+      <div class="s-sub" id="success-sub"></div>
+    </div>
+    <a id="dl-btn">⬇ Download</a>
+  </div>
+
+  <footer>Runs entirely in your browser · No files are uploaded anywhere</footer>
+</div>
+
+<script>
+const TEXT_EXTS = new Set([
+  '.php','.js','.jsx','.ts','.tsx','.html','.htm','.css','.scss','.sass','.less',
+  '.vue','.svelte','.json','.yaml','.yml','.xml','.toml','.ini','.env','.cfg',
+  '.conf','.config','.properties','.sql','.py','.sh','.bash','.zsh','.bat',
+  '.ps1','.rb','.pl','.md','.txt','.rst','.csv','.log','.htaccess','.gitignore',
+  '.java','.kt','.swift','.go','.rs','.c','.cpp','.h','.cs'
+]);
+const SKIP_NAMES = new Set(['.keep','.gitkeep','.ds_store']);
+const MAX_BYTES = 2 * 1024 * 1024;
+
+let files = [];
+
+// ── Drag & drop ──
+const dz = document.getElementById('dropzone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('dragover');
+  addFiles([...e.dataTransfer.files]);
+});
+document.getElementById('file-input').addEventListener('change', e => {
+  addFiles([...e.target.files]);
+  e.target.value = '';
+});
+
+function addFiles(newFiles) {
+  newFiles.forEach(f => {
+    if (!f.name.toLowerCase().endsWith('.zip')) return;
+    if (files.find(x => x.name === f.name && x.size === f.size)) return;
+    files.push(f);
+  });
+  renderList();
+}
+
+function removeFile(i) {
+  files.splice(i, 1);
+  renderList();
+}
+
+function fmtSize(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1024*1024) return (b/1024).toFixed(1) + ' KB';
+  return (b/1024/1024).toFixed(1) + ' MB';
+}
+
+function renderList() {
+  const el = document.getElementById('file-list');
+  el.innerHTML = '';
+  files.forEach((f, i) => {
+    el.innerHTML += `
+      <div class="file-item">
+        <div class="file-icon">🗜️</div>
+        <div class="file-info">
+          <div class="file-name">${f.name}</div>
+          <div class="file-size">${fmtSize(f.size)}</div>
+        </div>
+        <button class="file-remove" onclick="removeFile(${i})" title="Remove">✕</button>
+      </div>`;
+  });
+  document.getElementById('options-panel').style.display = files.length ? 'flex' : 'none';
+  document.getElementById('extract-btn').disabled = files.length === 0;
+  document.getElementById('success-box').style.display = 'none';
+  document.getElementById('log').style.display = 'none';
+  document.getElementById('progress-wrap').style.display = 'none';
+  if (files.length && !document.getElementById('opt-outname').value) {
+    const stem = files[0].name.replace(/\.zip$/i, '');
+    document.getElementById('opt-outname').value = stem + '_code.txt';
+  }
+}
+
+// ── Helpers ──
+function isText(name) {
+  const base = name.split('/').pop().toLowerCase();
+  if (SKIP_NAMES.has(base)) return false;
+  const dot = base.lastIndexOf('.');
+  if (dot === -1) return false;
+  return TEXT_EXTS.has(base.slice(dot));
+}
+
+function stripPrefix(paths) {
+  if (!paths.length) return paths;
+  const parts = paths.map(p => p.split('/'));
+  const minDepth = Math.min(...parts.map(p => p.length));
+  let common = 0;
+  outer: for (let i = 0; i < minDepth; i++) {
+    const seg = parts[0][i];
+    for (const p of parts) { if (p[i] !== seg) break outer; }
+    common++;
+  }
+  return paths.map(p => {
+    const arr = p.split('/').slice(common);
+    return arr.join('/');
+  });
+}
+
+function setProgress(pct, label) {
+  document.getElementById('prog-bar').style.width = pct + '%';
+  document.getElementById('prog-pct').textContent = Math.round(pct) + '%';
+  if (label) document.getElementById('prog-label-text').textContent = label;
+}
+
+function log(msg, cls) {
+  const el = document.getElementById('log');
+  el.style.display = 'block';
+  el.innerHTML += `<div class="${cls || ''}">${msg}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+// ── Main ──
+async function runExtract() {
+  const doStrip = document.getElementById('opt-strip').checked;
+  const outName = document.getElementById('opt-outname').value.trim() || 'extracted_code.txt';
+  const btn = document.getElementById('extract-btn');
+
+  btn.disabled = true;
+  document.getElementById('log').innerHTML = '';
+  document.getElementById('log').style.display = 'none';
+  document.getElementById('success-box').style.display = 'none';
+  document.getElementById('progress-wrap').style.display = 'block';
+  setProgress(0, 'Loading zips…');
+
+  const SEP = '='.repeat(60);
+  let output = '';
+  let totalFiles = 0, skipped = 0;
+
+  for (let zi = 0; zi < files.length; zi++) {
+    const f = files[zi];
+    setProgress((zi / files.length) * 80, `Reading ${f.name}…`);
+
+    let zip;
+    try {
+      zip = await JSZip.loadAsync(f);
+    } catch(e) {
+      log(`✗ Could not open ${f.name}: ${e.message}`, 'log-err');
+      continue;
+    }
+
+    if (files.length > 1) {
+      output += `\n${'#'.repeat(60)}\n# Archive: ${f.name}\n${'#'.repeat(60)}\n\n`;
+    }
+
+    // Collect text entries
+    const entries = [];
+    zip.forEach((relPath, entry) => {
+      if (!entry.dir && isText(relPath)) entries.push({ relPath, entry });
+    });
+
+    // Sort
+    entries.sort((a, b) => a.relPath.toLowerCase().localeCompare(b.relPath.toLowerCase()));
+
+    // Strip prefix
+    let displayPaths = entries.map(e => e.relPath);
+    if (doStrip) displayPaths = stripPrefix(displayPaths);
+
+    for (let ei = 0; ei < entries.length; ei++) {
+      const { relPath, entry } = entries[ei];
+      const display = displayPaths[ei] || relPath.split('/').pop();
+
+      setProgress(
+        (zi / files.length) * 80 + ((ei / entries.length) * 80 / files.length),
+        `${f.name} → ${display}`
+      );
+
+      // Size check via metadata
+      const size = entry._data?.uncompressedSize ?? 0;
+      if (size > MAX_BYTES) {
+        output += `${SEP}\n${display}\n${SEP}\n[SKIPPED – file too large (${(size/1024).toFixed(0)} KB)]\n\n`;
+        log(`⚠ Skipped (too large): ${display}`, 'log-skip');
+        skipped++; continue;
+      }
+
+      let content;
+      try {
+        const raw = await entry.async('uint8array');
+        const decoder = new TextDecoder('utf-8', { fatal: true });
+        try { content = decoder.decode(raw); }
+        catch { content = new TextDecoder('latin1').decode(raw); }
+      } catch(e) {
+        content = `[SKIPPED – read error: ${e.message}]`;
+        skipped++;
+        log(`✗ Error: ${display}`, 'log-err');
+      }
+
+      output += `${SEP}\n${display}\n${SEP}\n${content}\n\n`;
+      log(`✓ ${display}`, 'log-ok');
+      totalFiles++;
+    }
+  }
+
+  setProgress(100, 'Done!');
+
+  // Create download
+  const blob = new Blob([output], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const dlBtn = document.getElementById('dl-btn');
+  dlBtn.href = url;
+  dlBtn.download = outName;
+
+  const kb = (blob.size / 1024).toFixed(1);
+  document.getElementById('success-sub').textContent =
+    `${totalFiles} files extracted · ${skipped} skipped · ${kb} KB`;
+
+  const sb = document.getElementById('success-box');
+  sb.style.display = 'flex';
+  btn.disabled = false;
+}
+</script>
+</body>
+</html>
