@@ -258,4 +258,9 @@ It takes one click and helps other developers find the tool.
 
 *Built for developers who are tired of dealing with ZIP files.*
 
+<br/>
+<img width="1144" height="879" alt="image" src="https://github.com/user-attachments/assets/afa24497-a188-4a04-999a-ca16926c1589" />
+
+
+
 </div>
